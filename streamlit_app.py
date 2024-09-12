@@ -24,7 +24,7 @@ MACHINE_IDS = ["Machine-1", "Machine-2", "Machine-3", "Machine-4", "Machine-5"]
 machine_data_df = pd.DataFrame(columns=[
     "device_id", "timestamp", "heat_treatment_process", "temperature",
     "pressure", "humidity", "vibration", "electricity_consumption_kwh",
-    "electricity_cost_zar", "consumption_evaluation", "status"
+    "electricity_cost_zar", "consumption_evaluation", "status", "component_status", "component_failure_reason"
 ])
 
 hourly_data_df = pd.DataFrame(columns=[
@@ -50,6 +50,15 @@ def simulate_heat_treatment_process(machine_id, override_temperature=None):
     evaluation = "Good" if electricity_consumption < 5 else "Moderate" if 5 <= electricity_consumption < 15 else "High"
     status = "Operating" if random.random() > 0.1 else "Idle" if random.random() > 0.5 else "Maintenance Required"
     
+    # Check if the temperature meets the standard
+    min_temp, max_temp = temperature_range
+    if min_temp <= temperature <= max_temp:
+        component_status = "Pass"
+        component_failure_reason = "Temperature within the standard range."
+    else:
+        component_status = "Fail"
+        component_failure_reason = "Temperature outside the standard range. Components may fail due to insufficient or excessive heat."
+    
     return {
         "device_id": machine_id,
         "heat_treatment_process": process,
@@ -61,6 +70,8 @@ def simulate_heat_treatment_process(machine_id, override_temperature=None):
         "electricity_cost_zar": round(cost, 2),
         "consumption_evaluation": evaluation,
         "status": status,
+        "component_status": component_status,
+        "component_failure_reason": component_failure_reason,
         "timestamp": datetime.now()
     }
 
@@ -118,7 +129,7 @@ temperature_slider = st.slider(
     "Adjust Temperature (°C)", 
     min_value=100, 
     max_value=1000, 
-    value=random.randint(100, 1000)
+    value=500
 )
 
 # Create a checkbox to enable or disable the slider's effect
@@ -203,9 +214,9 @@ def update_machine_data():
             graph_placeholder.plotly_chart(fig_pressure_humidity_vibration, use_container_width=True)
         
         elif graph_type == "Electricity Consumption & Cost":
-            fig_electricity = px.line(filtered_data, x='timestamp', y='electricity_consumption_kwh', title='Electricity Consumption & Cost',
-                                      labels={'timestamp': 'Time', 'electricity_consumption_kwh': 'Consumption (kWh)'})
-            fig_cost = px.line(filtered_data, x='timestamp', y='electricity_cost_zar', title='Electricity Cost',
+            fig_electricity = px.line(filtered_data, x='timestamp', y='electricity_consumption_kwh', title='Electricity Consumption (kWh)',
+                                     labels={'timestamp': 'Time', 'electricity_consumption_kwh': 'Consumption (kWh)'})
+            fig_cost = px.line(filtered_data, x='timestamp', y='electricity_cost_zar', title='Electricity Cost (ZAR)',
                                labels={'timestamp': 'Time', 'electricity_cost_zar': 'Cost (ZAR)'})
             graph_placeholder.plotly_chart(fig_electricity, use_container_width=True)
             graph_placeholder.plotly_chart(fig_cost, use_container_width=True)
