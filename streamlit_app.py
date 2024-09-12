@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import asyncio
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
 import random
 
 # South African Electricity Tariff
@@ -32,10 +32,16 @@ hourly_data_df = pd.DataFrame(columns=[
 ])
 
 # Function to simulate heat treatment process
-def simulate_heat_treatment_process(machine_id):
+def simulate_heat_treatment_process(machine_id, override_temperature=None):
     process = random.choice(list(HEAT_TREATMENT_PROCESSES.keys()))
     temperature_range, duration = HEAT_TREATMENT_PROCESSES[process][:2], HEAT_TREATMENT_PROCESSES[process][2]
-    temperature = random.randint(*temperature_range)
+
+    # If override_temperature is provided, use it; otherwise, generate a random temperature
+    if override_temperature is not None:
+        temperature = override_temperature
+    else:
+        temperature = random.randint(*temperature_range)
+
     pressure = random.uniform(1.5, 3.0)
     electricity_consumption = random.uniform(10, 20) * (duration / 3)  # Adjust for duration
     cost = electricity_consumption * ELECTRICITY_TARIFF_ZAR_PER_KWH
@@ -107,6 +113,17 @@ st.title("Real-Time Machine Monitoring Dashboard")
 # Create a select box for machine selection
 selected_machine = st.selectbox("Select Machine", MACHINE_IDS)
 
+# Create a slider for manual temperature adjustment
+temperature_slider = st.slider(
+    "Adjust Temperature (°C)", 
+    min_value=100, 
+    max_value=1000, 
+    value=random.randint(100, 1000)
+)
+
+# Create a checkbox to enable or disable the slider's effect
+override_temp = st.checkbox("Override with slider temperature", value=False)
+
 # Create a dropdown for selecting the type of graph
 graph_type = st.selectbox("Select Graph Type", [
     "Temperature vs. Time", 
@@ -114,22 +131,25 @@ graph_type = st.selectbox("Select Graph Type", [
     "Electricity Consumption & Cost", 
     "Consumption Evaluation",
     "Hourly Electricity Consumption & Cost",
-    "Machine Status"
+    "Machine Status",
+    "Pie Chart of Machine Temperatures",
+    "Bar Chart of Electricity Consumption and Costs",
+    "Line Chart of Temperature Trends Over Time",
+    "Heatmap of Temperature Differences"
 ])
-
-# Create a button to refresh the data
-if st.button("Refresh Data"):
-    st.write("Data refreshed!")
 
 # Placeholder for dynamic content
 machine_placeholder = st.empty()
 graph_placeholder = st.empty()
 
 # Function to update machine data
-async def update_machine_data():
+def update_machine_data():
     global machine_data_df, hourly_data_df
     while True:
-        machine_data = simulate_heat_treatment_process(selected_machine)
+        # Use the slider's value if override is enabled; otherwise, set to None for automatic simulation
+        override_temperature = temperature_slider if override_temp else None
+        
+        machine_data = simulate_heat_treatment_process(selected_machine, override_temperature)
         new_data = pd.DataFrame([machine_data])
         machine_data_df = pd.concat([machine_data_df, new_data], ignore_index=True)
         machine_data_df = machine_data_df.tail(50)  # Keep only the last 50 records for performance
@@ -191,28 +211,41 @@ async def update_machine_data():
             graph_placeholder.plotly_chart(fig_cost, use_container_width=True)
         
         elif graph_type == "Consumption Evaluation":
-            status_counts = filtered_data['consumption_evaluation'].value_counts()
-            fig_evaluation = px.pie(values=status_counts.values, names=status_counts.index, title='Consumption Evaluation Distribution')
-            graph_placeholder.plotly_chart(fig_evaluation, use_container_width=True)
+            fig_eval = px.bar(filtered_data, x='timestamp', y='consumption_evaluation', title='Consumption Evaluation',
+                              labels={'timestamp': 'Time', 'consumption_evaluation': 'Evaluation'})
+            graph_placeholder.plotly_chart(fig_eval, use_container_width=True)
         
         elif graph_type == "Hourly Electricity Consumption & Cost":
-            hourly_filtered_data = hourly_data_df[hourly_data_df["device_id"] == selected_machine]
-            fig_hourly_consumption = px.line(hourly_filtered_data, x='hour', y='total_consumption_kwh', title='Hourly Electricity Consumption',
-                                             labels={'hour': 'Hour', 'total_consumption_kwh': 'Consumption (kWh)'})
-            fig_hourly_cost = px.line(hourly_filtered_data, x='hour', y='total_cost_zar', title='Hourly Electricity Cost',
-                                      labels={'hour': 'Hour', 'total_cost_zar': 'Cost (ZAR)'})
-            graph_placeholder.plotly_chart(fig_hourly_consumption, use_container_width=True)
-            graph_placeholder.plotly_chart(fig_hourly_cost, use_container_width=True)
-
+            hourly_data = hourly_data_df[hourly_data_df['device_id'] == selected_machine]
+            fig_hourly = px.bar(hourly_data, x='hour', y='total_consumption_kwh', title='Hourly Electricity Consumption & Cost',
+                                labels={'hour': 'Hour', 'total_consumption_kwh': 'Total Consumption (kWh)'})
+            graph_placeholder.plotly_chart(fig_hourly, use_container_width=True)
+        
         elif graph_type == "Machine Status":
-            status_counts = filtered_data['status'].value_counts()
-            fig_status = px.pie(values=status_counts.values, names=status_counts.index, title='Machine Status Distribution')
+            fig_status = px.bar(filtered_data, x='timestamp', y='status', title='Machine Status Over Time',
+                                labels={'timestamp': 'Time', 'status': 'Status'})
             graph_placeholder.plotly_chart(fig_status, use_container_width=True)
 
-        await asyncio.sleep(5)  # Update data every minute
+        elif graph_type == "Pie Chart of Machine Temperatures":
+            fig_pie_temp = px.pie(filtered_data, values='temperature', names='heat_treatment_process',
+                                  title='Pie Chart of Machine Temperatures')
+            graph_placeholder.plotly_chart(fig_pie_temp, use_container_width=True)
+        
+        elif graph_type == "Bar Chart of Electricity Consumption and Costs":
+            fig_bar_cost = px.bar(filtered_data, x='timestamp', y=['electricity_consumption_kwh', 'electricity_cost_zar'],
+                                  title='Bar Chart of Electricity Consumption and Costs')
+            graph_placeholder.plotly_chart(fig_bar_cost, use_container_width=True)
+        
+        elif graph_type == "Line Chart of Temperature Trends Over Time":
+            fig_line_temp = px.line(filtered_data, x='timestamp', y='temperature', title='Line Chart of Temperature Trends Over Time')
+            graph_placeholder.plotly_chart(fig_line_temp, use_container_width=True)
+        
+        elif graph_type == "Heatmap of Temperature Differences":
+            fig_heatmap_temp = px.density_heatmap(filtered_data, x='timestamp', y='temperature', title='Heatmap of Temperature Differences')
+            graph_placeholder.plotly_chart(fig_heatmap_temp, use_container_width=True)
+        
+        # Sleep for 5 seconds before refreshing data
+        time.sleep(5)
 
-# Start the async update loop
-if st.button("Start Simulation"):
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(update_machine_data())
+# Start the data simulation and dashboard update
+update_machine_data()
