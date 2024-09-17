@@ -5,8 +5,9 @@ import time
 from datetime import datetime
 import random
 
-# South African Electricity Tariff
+# South African Electricity Tariff and Carbon Emissions Factor
 ELECTRICITY_TARIFF_ZAR_PER_KWH = 2.20  # Rands per kWh
+CARBON_EMISSIONS_FACTOR = 0.9  # kg CO2 per kWh (example value)
 
 # Heat treatment processes and their temperature ranges and durations (in minutes)
 HEAT_TREATMENT_PROCESSES = {
@@ -21,14 +22,15 @@ HEAT_TREATMENT_PROCESSES = {
 MACHINE_IDS = ["Machine-1", "Machine-2", "Machine-3", "Machine-4", "Machine-5"]
 
 # Initialize DataFrames to store real-time and hourly data
-machine_data_df = pd.DataFrame(columns=[
+machine_data_df = pd.DataFrame(columns=[  # Added 'carbon_emissions_kg' column
     "device_id", "timestamp", "heat_treatment_process", "temperature",
     "pressure", "humidity", "vibration", "electricity_consumption_kwh",
-    "electricity_cost_zar", "consumption_evaluation", "status", "component_status", "component_failure_reason"
+    "electricity_cost_zar", "carbon_emissions_kg", "consumption_evaluation",
+    "status", "component_status", "component_failure_reason"
 ])
 
-hourly_data_df = pd.DataFrame(columns=[
-    "device_id", "hour", "total_consumption_kwh", "total_cost_zar"
+hourly_data_df = pd.DataFrame(columns=[  # Added 'total_emissions_kg' column
+    "device_id", "hour", "total_consumption_kwh", "total_cost_zar", "total_emissions_kg"
 ])
 
 # Function to simulate heat treatment process
@@ -45,6 +47,7 @@ def simulate_heat_treatment_process(machine_id, override_temperature=None):
     pressure = random.uniform(1.5, 3.0)
     electricity_consumption = random.uniform(10, 20) * (duration / 3)  # Adjust for duration
     cost = electricity_consumption * ELECTRICITY_TARIFF_ZAR_PER_KWH
+    carbon_emissions = electricity_consumption * CARBON_EMISSIONS_FACTOR
     humidity = random.randint(30, 70)
     vibration = random.uniform(0.1, 2.0)
     evaluation = "Good" if electricity_consumption < 5 else "Moderate" if 5 <= electricity_consumption < 15 else "High"
@@ -68,6 +71,7 @@ def simulate_heat_treatment_process(machine_id, override_temperature=None):
         "vibration": vibration,
         "electricity_consumption_kwh": electricity_consumption,
         "electricity_cost_zar": round(cost, 2),
+        "carbon_emissions_kg": round(carbon_emissions, 2),
         "consumption_evaluation": evaluation,
         "status": status,
         "component_status": component_status,
@@ -79,7 +83,7 @@ def simulate_heat_treatment_process(machine_id, override_temperature=None):
 st.set_page_config(page_title="Real-Time Machine Monitoring Dashboard", layout="wide")
 
 # Custom CSS
-st.markdown("""
+st.markdown("""  # 
     <style>
         .main {
             background-color: #f4f4f9;
@@ -140,8 +144,10 @@ graph_type = st.selectbox("Select Graph Type", [
     "Temperature vs. Time", 
     "Pressure, Humidity & Vibration", 
     "Electricity Consumption & Cost", 
+    "Carbon Emissions & Cost", 
     "Consumption Evaluation",
     "Hourly Electricity Consumption & Cost",
+    "Hourly Carbon Emissions & Cost",
     "Machine Status",
     "Pie Chart of Machine Temperatures",
     "Bar Chart of Electricity Consumption and Costs",
@@ -168,18 +174,19 @@ def update_machine_data():
         # Update hourly data
         current_hour = datetime.now().replace(minute=0, second=0, microsecond=0)
         hourly_data = hourly_data_df[
-            (hourly_data_df["device_id"] == selected_machine) &
+            (hourly_data_df["device_id"] == selected_machine) & 
             (hourly_data_df["hour"] == current_hour)
         ]
         
         if hourly_data.empty:
-            hourly_data_df = pd.concat([
+            hourly_data_df = pd.concat([ 
                 hourly_data_df,
                 pd.DataFrame([{
                     "device_id": selected_machine,
                     "hour": current_hour,
                     "total_consumption_kwh": machine_data["electricity_consumption_kwh"],
-                    "total_cost_zar": machine_data["electricity_cost_zar"]
+                    "total_cost_zar": machine_data["electricity_cost_zar"],
+                    "total_emissions_kg": machine_data["carbon_emissions_kg"]
                 }])
             ], ignore_index=True)
         else:
@@ -193,6 +200,11 @@ def update_machine_data():
                 (hourly_data_df["hour"] == current_hour),
                 "total_cost_zar"
             ] += machine_data["electricity_cost_zar"]
+            hourly_data_df.loc[
+                (hourly_data_df["device_id"] == selected_machine) &
+                (hourly_data_df["hour"] == current_hour),
+                "total_emissions_kg"
+            ] += machine_data["carbon_emissions_kg"]
 
         # Filter data for the selected machine
         filtered_data = machine_data_df[machine_data_df["device_id"] == selected_machine]
@@ -203,60 +215,38 @@ def update_machine_data():
 
         # Plot based on selected graph type
         if graph_type == "Temperature vs. Time":
-            fig_temp = px.line(filtered_data, x='timestamp', y='temperature', title='Temperature vs. Time',
-                               labels={'timestamp': 'Time', 'temperature': 'Temperature (°C)'})
-            graph_placeholder.plotly_chart(fig_temp, use_container_width=True)
-        
+            fig = px.line(filtered_data, x="timestamp", y="temperature", title="Temperature vs. Time")
         elif graph_type == "Pressure, Humidity & Vibration":
-            fig_pressure_humidity_vibration = px.line(filtered_data, x='timestamp', y='pressure', title='Pressure, Humidity & Vibration vs. Time')
-            fig_pressure_humidity_vibration.add_scatter(x=filtered_data['timestamp'], y=filtered_data['humidity'], mode='lines+markers', name='Humidity', marker=dict(color='orange'))
-            fig_pressure_humidity_vibration.add_scatter(x=filtered_data['timestamp'], y=filtered_data['vibration'], mode='lines+markers', name='Vibration', marker=dict(color='green'))
-            graph_placeholder.plotly_chart(fig_pressure_humidity_vibration, use_container_width=True)
-        
+            fig = px.line(filtered_data, x="timestamp", y=["pressure", "humidity", "vibration"], title="Pressure, Humidity & Vibration")
         elif graph_type == "Electricity Consumption & Cost":
-            fig_electricity = px.line(filtered_data, x='timestamp', y='electricity_consumption_kwh', title='Electricity Consumption (kWh)',
-                                     labels={'timestamp': 'Time', 'electricity_consumption_kwh': 'Consumption (kWh)'})
-            fig_cost = px.line(filtered_data, x='timestamp', y='electricity_cost_zar', title='Electricity Cost (ZAR)',
-                               labels={'timestamp': 'Time', 'electricity_cost_zar': 'Cost (ZAR)'})
-            graph_placeholder.plotly_chart(fig_electricity, use_container_width=True)
-            graph_placeholder.plotly_chart(fig_cost, use_container_width=True)
-        
+            fig = px.line(filtered_data, x="timestamp", y=["electricity_consumption_kwh", "electricity_cost_zar"], title="Electricity Consumption & Cost")
+        elif graph_type == "Carbon Emissions & Cost":
+            fig = px.line(filtered_data, x="timestamp", y=["carbon_emissions_kg", "electricity_cost_zar"], title="Carbon Emissions & Cost")
         elif graph_type == "Consumption Evaluation":
-            fig_eval = px.bar(filtered_data, x='timestamp', y='consumption_evaluation', title='Consumption Evaluation',
-                              labels={'timestamp': 'Time', 'consumption_evaluation': 'Evaluation'})
-            graph_placeholder.plotly_chart(fig_eval, use_container_width=True)
-        
+            fig = px.pie(filtered_data, names="consumption_evaluation", title="Consumption Evaluation")
         elif graph_type == "Hourly Electricity Consumption & Cost":
-            hourly_data = hourly_data_df[hourly_data_df['device_id'] == selected_machine]
-            fig_hourly = px.bar(hourly_data, x='hour', y='total_consumption_kwh', title='Hourly Electricity Consumption & Cost',
-                                labels={'hour': 'Hour', 'total_consumption_kwh': 'Total Consumption (kWh)'})
-            graph_placeholder.plotly_chart(fig_hourly, use_container_width=True)
-        
+            hourly_summary = hourly_data_df[hourly_data_df["device_id"] == selected_machine]
+            fig = px.bar(hourly_summary, x="hour", y=["total_consumption_kwh", "total_cost_zar"], title="Hourly Electricity Consumption & Cost")
+        elif graph_type == "Hourly Carbon Emissions & Cost":
+            hourly_summary = hourly_data_df[hourly_data_df["device_id"] == selected_machine]
+            fig = px.bar(hourly_summary, x="hour", y=["total_emissions_kg", "total_cost_zar"], title="Hourly Carbon Emissions & Cost")
         elif graph_type == "Machine Status":
-            fig_status = px.bar(filtered_data, x='timestamp', y='status', title='Machine Status Over Time',
-                                labels={'timestamp': 'Time', 'status': 'Status'})
-            graph_placeholder.plotly_chart(fig_status, use_container_width=True)
-
+            status_counts = filtered_data["status"].value_counts()
+            fig = px.pie(values=status_counts.values, names=status_counts.index, title="Machine Status Distribution")
         elif graph_type == "Pie Chart of Machine Temperatures":
-            fig_pie_temp = px.pie(filtered_data, values='temperature', names='heat_treatment_process',
-                                  title='Pie Chart of Machine Temperatures')
-            graph_placeholder.plotly_chart(fig_pie_temp, use_container_width=True)
-        
+            fig = px.pie(filtered_data, names="temperature", title="Pie Chart of Machine Temperatures")
         elif graph_type == "Bar Chart of Electricity Consumption and Costs":
-            fig_bar_cost = px.bar(filtered_data, x='timestamp', y=['electricity_consumption_kwh', 'electricity_cost_zar'],
-                                  title='Bar Chart of Electricity Consumption and Costs')
-            graph_placeholder.plotly_chart(fig_bar_cost, use_container_width=True)
-        
+            fig = px.bar(filtered_data, x="timestamp", y=["electricity_consumption_kwh", "electricity_cost_zar"], title="Bar Chart of Electricity Consumption and Costs")
         elif graph_type == "Line Chart of Temperature Trends Over Time":
-            fig_line_temp = px.line(filtered_data, x='timestamp', y='temperature', title='Line Chart of Temperature Trends Over Time')
-            graph_placeholder.plotly_chart(fig_line_temp, use_container_width=True)
-        
+            fig = px.line(filtered_data, x="timestamp", y="temperature", title="Line Chart of Temperature Trends Over Time")
         elif graph_type == "Heatmap of Temperature Differences":
-            fig_heatmap_temp = px.density_heatmap(filtered_data, x='timestamp', y='temperature', title='Heatmap of Temperature Differences')
-            graph_placeholder.plotly_chart(fig_heatmap_temp, use_container_width=True)
-        
-        # Sleep for 5 seconds before refreshing data
-        time.sleep(5)
+            # Calculating temperature differences for the heatmap
+            filtered_data['temp_diff'] = filtered_data['temperature'].diff().fillna(0)
+            fig = px.imshow(filtered_data.pivot_table(index='timestamp', values='temp_diff'), title="Heatmap of Temperature Differences")
 
-# Start the data simulation and dashboard update
+        graph_placeholder.plotly_chart(fig)
+        
+        time.sleep(5)  # Update every 5 seconds
+
+# Start the simulation
 update_machine_data()
