@@ -179,7 +179,7 @@ def update_machine_data():
             st.sidebar.write("**Technician View:**")
             st.sidebar.write("Detailed component status and potential issues.")
             # Display detailed component status, failure reasons, and machine data for maintenance
-            machine_placeholder.write(filtered_data[['timestamp', 'heat_treatment_process', 'temperature', 'pressure', 'humidity', 'vibration', 'status', 'component_status', 'component_failure_reason']].tail(10))
+            machine_placeholder.write(filtered_data[['timestamp', 'heat_treatment_process', 'temperature',  'status', 'component_status', 'component_failure_reason']].tail(10))
 
         elif operator_role == "Supervisor":
             st.sidebar.write("**Supervisor View:**")
